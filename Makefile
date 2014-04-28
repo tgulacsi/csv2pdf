@@ -1,16 +1,16 @@
 GO =? go
 
-all: font.c
+all: fontzip.c
 	go build
 
-font.zip:
-	zip -r9 font.zip font
+fontzip.zip: font/
+	zip -r9 fontzip.zip font
 
-font.c: font.zip rsrc
-	rsrc -data=font.zip -o font.syso >font.c
+fontzip.c: fontzip.zip rsrc
+	rsrc -data=fontzip.zip -o fontzip.syso >fontzip.c
 
 rsrc:
 	which rsrc || go get https://github.com/akavel/rsrc
 
 clean:
-	rm -f font.c font.syso font.zip csv2pdf
+	rm -f fontzip.c fontzip.zip fontzip.syso csv2pdf

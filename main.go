@@ -21,8 +21,10 @@ import (
 
 func main() {
 	flagCharset := flag.String("charset", "utf-8", "input charset")
-	flagFontDir := flag.String("fontdir", "font", "font and mapping directory")
+	flagFontDir := flag.String("fontdir", "", "font directory")
 	flag.Parse()
+
+	fontzip := get_fontzip()
 
 	encoding := text.GetEncoding(*flagCharset)
 	var (
@@ -32,10 +34,13 @@ func main() {
 	)
 	if encoding != nil {
 		csDecoder = func(r io.Reader) io.Reader { return text.NewDecodingReader(r, encoding) }
-		fn := filepath.Join(*flagFontDir, strings.ToLower(*flagCharset)+".map")
-		if pdfTranslator, err = gofpdf.UnicodeTranslatorFromFile(fn); err != nil {
+		fn := filepath.Join("font", strings.ToLower(*flagCharset)+".map")
+		mapfh = zipOpen(get_fontzip(), fn)
+		if pdfTranslator, err = gofpdf.UnicodeTranslator(mapfh); err != nil {
+			mapfh.Close()
 			log.Fatalf("error loading charset mapping from %q: %v", fn, err)
 		}
+		mapfh.Close()
 	} else {
 		csDecoder = func(r io.Reader) io.Reader { return text.NewReplacementReader(r) }
 	}
