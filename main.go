@@ -6,6 +6,8 @@
 package main
 
 import (
+	"archive/zip"
+	"bytes"
 	"encoding/csv"
 	"flag"
 	"fmt"
@@ -18,7 +20,6 @@ import (
 
 	"code.google.com/p/gofpdf"
 	"github.com/GeertJohan/go.rice"
-	"github.com/GeertJohan/go.rice/embedded"
 	"github.com/tgulacsi/go/text"
 )
 
@@ -126,7 +127,7 @@ func prepareFontDir(path string) (fontDir string, closeDir func() error, err err
 	if fontDir != "" {
 		return
 	}
-	fontBox, e := rice.FindBox("font")
+	fontBox, e := rice.FindBox("font.rice")
 	if e != nil {
 		err = fmt.Errorf("no fontdir given, and no fontdir is bundled: %v", err)
 		return
@@ -143,41 +144,30 @@ func prepareFontDir(path string) (fontDir string, closeDir func() error, err err
 		}
 	}()
 
-	var filenames []string
-	if fontBox.IsEmbedded() {
-		for k := range embedded.EmbeddedBoxes["font"].Files {
-			filenames = append(filenames, k)
-		}
-	} else {
-		dh, e := fontBox.Open("")
-		if e != nil {
-			err = fmt.Errorf("cannot open font box dir: %v", e)
-			return
-		}
-		fis, e := dh.Readdir(-1)
-		dh.Close()
-		if e != nil {
-			err = fmt.Errorf("error listing dir: %v", e)
-			return
-		}
-		for _, fi := range fis {
-			filenames = append(filenames, fi.Name())
-		}
+	b, e := fontBox.Bytes("fontdir.zip")
+	if e != nil {
+		err = fmt.Errorf("cannot open fontdir.zip: %v", e)
+		return
 	}
-	for _, fn := range filenames {
-		src, err := fontBox.Open(fn)
+	zr, e := zip.NewReader(bytes.NewReader(b), int64(len(b)))
+	if e != nil {
+		err = fmt.Errorf("error opening zip: %v", err)
+		return
+	}
+	for _, fi := range zr.File {
+		src, err := fi.Open()
 		if err != nil {
-			log.Printf("error opening %q: %v", fn, err)
+			log.Printf("error opening %q: %v", fi.Name, err)
 			continue
 		}
-		dstFn := filepath.Join(fontDir, fn)
+		dstFn := filepath.Join(fontDir, fi.Name)
 		dst, err := os.Create(dstFn)
 		if err != nil {
 			src.Close()
 			log.Printf("error creating %q: %v", dstFn, err)
 			continue
 		}
-		log.Printf("copying %#v to %#v", src, dst)
+		log.Printf("copying %s to %s", fi.Name, dstFn)
 		if _, err = io.Copy(dst, src); err != nil {
 			log.Printf("error copying: %v", err)
 		}
