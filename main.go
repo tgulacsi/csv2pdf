@@ -6,8 +6,11 @@
 package main
 
 import (
+	"archive/zip"
+	"bytes"
 	"encoding/csv"
 	"flag"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"log"
@@ -24,23 +27,23 @@ func main() {
 	flagFontDir := flag.String("fontdir", "", "font directory")
 	flag.Parse()
 
-	fontzip := get_fontzip()
+	fontDir, closeFontDir, err := prepareFontDir(*flagFontDir)
+	if err != nil {
+		log.Fatalf("error preparing font dir %q: %v", *flagFontDir, err)
+	}
+	defer closeFontDir()
 
 	encoding := text.GetEncoding(*flagCharset)
 	var (
 		csDecoder     func(r io.Reader) io.Reader
-		err           error
 		pdfTranslator = func(t string) string { return t }
 	)
 	if encoding != nil {
 		csDecoder = func(r io.Reader) io.Reader { return text.NewDecodingReader(r, encoding) }
-		fn := filepath.Join("font", strings.ToLower(*flagCharset)+".map")
-		mapfh = zipOpen(get_fontzip(), fn)
-		if pdfTranslator, err = gofpdf.UnicodeTranslator(mapfh); err != nil {
-			mapfh.Close()
+		fn := filepath.Join(fontDir, strings.ToLower(*flagCharset)+".map")
+		if pdfTranslator, err = gofpdf.UnicodeTranslatorFromFile(fn); err != nil {
 			log.Fatalf("error loading charset mapping from %q: %v", fn, err)
 		}
-		mapfh.Close()
 	} else {
 		csDecoder = func(r io.Reader) io.Reader { return text.NewReplacementReader(r) }
 	}
@@ -79,7 +82,7 @@ func main() {
 	cr.LazyQuotes = true
 	cr.TrimLeadingSpace = true
 
-	pdf := gofpdf.New("P", "mm", "A4", "font")
+	pdf := gofpdf.New("P", "mm", "A4", fontDir)
 	defPageWidth, defPageHeight, _ := pdf.PageSize(0)
 	defPageSize := gofpdf.SizeType{defPageWidth, defPageHeight}
 	n := 0
@@ -116,6 +119,57 @@ func main() {
 			log.Fatalf("error writing PDF: %v", err)
 		}
 	}
+}
+
+func prepareFontDir(path string) (fontDir string, closeDir func() error, err error) {
+	fontDir = path
+	if fontDir != "" {
+		return
+	}
+	fontZipData, err := Asset("fontdir.zip")
+	if err != nil {
+		err = fmt.Errorf("no fontdir given, and no fontdir is bundled: %v", err)
+		return
+	}
+	zr, e := zip.NewReader(bytes.NewReader(fontZipData), int64(len(fontZipData)))
+	if e != nil {
+		err = fmt.Errorf("error opening zip: %v", err)
+		return
+	}
+
+	if fontDir, err = ioutil.TempDir("", "csv2pdf-font-"); err != nil {
+		err = fmt.Errorf("cannot create temp dir for fonts: %v", err)
+		return
+	}
+	closeDir = func() error { return os.RemoveAll(fontDir) }
+	defer func() {
+		if err != nil && closeDir != nil {
+			closeDir()
+			closeDir = nil
+		}
+	}()
+
+	for _, fi := range zr.File {
+		src, err := fi.Open()
+		if err != nil {
+			log.Printf("error opening %q: %v", fi.Name, err)
+			continue
+		}
+		dstFn := filepath.Join(fontDir, fi.Name)
+		dst, err := os.Create(dstFn)
+		if err != nil {
+			src.Close()
+			log.Printf("error creating %q: %v", dstFn, err)
+			continue
+		}
+		log.Printf("copying %s to %s", fi.Name, dstFn)
+		if _, err = io.Copy(dst, src); err != nil {
+			log.Printf("error copying: %v", err)
+		}
+		dst.Close()
+		src.Close()
+	}
+	return
 }
 
 // makeTable prepares a table and returns a function for inserting the rows

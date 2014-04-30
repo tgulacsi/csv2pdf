@@ -1,16 +1,17 @@
 GO =? go
 
-all: fontzip.c
+all: fontdir.go
 	go build
 
-fontzip.zip: font/
-	zip -r9 fontzip.zip font
+fontdir.go: assets/fontdir.zip go-bindata
+	go-bindata -nomemcopy -nocompress -prefix=assets -o=./fontdir.go assets
 
-fontzip.c: fontzip.zip rsrc
-	rsrc -data=fontzip.zip -o fontzip.syso >fontzip.c
+go-bindata:
+	which go-bindata || go get github.com/jteeuwen/go-bindata/...
 
-rsrc:
-	which rsrc || go get https://github.com/akavel/rsrc
+assets/fontdir.zip: font/
+	mkdir -p assets
+	zip -jr9 assets/fontdir.zip font
 
 clean:
-	rm -f fontzip.c fontzip.zip fontzip.syso csv2pdf
+	rm -f fontdir.go assets/fontdir.zip csv2pdf
