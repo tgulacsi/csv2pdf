@@ -38,14 +38,14 @@ func main() {
 		csDecoder     func(r io.Reader) io.Reader
 		pdfTranslator = func(t string) string { return t }
 	)
-	if encoding != nil {
-		csDecoder = func(r io.Reader) io.Reader { return text.NewDecodingReader(r, encoding) }
-		fn := filepath.Join(fontDir, strings.ToLower(*flagCharset)+".map")
-		if pdfTranslator, err = gofpdf.UnicodeTranslatorFromFile(fn); err != nil {
-			log.Fatalf("error loading charset mapping from %q: %v", fn, err)
-		}
-	} else {
-		csDecoder = func(r io.Reader) io.Reader { return text.NewReplacementReader(r) }
+	csDecoder = func(r io.Reader) io.Reader { return text.NewDecodingReader(r, encoding) }
+	cs := *flagCharset
+	if cs == "utf-8" {
+		cs = "iso-8859-2"
+	}
+	fn := filepath.Join(fontDir, strings.ToLower(cs)+".map")
+	if pdfTranslator, err = gofpdf.UnicodeTranslatorFromFile(fn); err != nil {
+		log.Fatalf("error loading charset mapping from %q: %v", fn, err)
 	}
 
 	var (
@@ -91,9 +91,10 @@ func main() {
 		totalWidth := 0
 		for i := range part.head {
 			if len(part.head[i]) > part.widths[i] {
-				part.widths[i] = len(part.head[i])
+				totalWidth += len(part.head[i])
+			} else {
+				totalWidth += part.widths[i]
 			}
-			totalWidth += part.widths[i]
 		}
 		orientation := "P"
 		if totalWidth > 190 {
@@ -181,11 +182,15 @@ func makeTable(pdf *gofpdf.Fpdf, pdfTranslator func(string) string,
 	pdf.SetTextColor(0, 0, 0)
 	pdf.SetDrawColor(128, 0, 0)
 	pdf.SetLineWidth(.3)
-	pdf.SetFont("Arial", "B", 12)
+	pdf.SetFont("Arial", "B", 10)
 
+	colwidths := make([]float64, len(widths))
+	for i, w := range widths {
+		colwidths[i] = maxFloat(float64(w)*1.75, float64(len(header[i]))*2)
+	}
 	// Header
 	for i, v := range header {
-		pdf.CellFormat(float64(widths[i])*1.25, 7, pdfTranslator(v), "1", 0, "C", true, 0, "")
+		pdf.CellFormat(colwidths[i], 7, pdfTranslator(v), "1", 0, "C", true, 0, "")
 	}
 	pdf.Ln(-1)
 
@@ -198,7 +203,7 @@ func makeTable(pdf *gofpdf.Fpdf, pdfTranslator func(string) string,
 	fill := false
 	return func(record []string) {
 		for i, v := range record {
-			pdf.CellFormat(float64(widths[i])*1.25, 6, pdfTranslator(v), "LR", 0, "L", fill, 0, "")
+			pdf.CellFormat(colwidths[i], 6, pdfTranslator(v), "LR", 0, "L", fill, 0, "")
 		}
 		pdf.Ln(-1)
 		fill = !fill
@@ -258,4 +263,11 @@ func parseCsv(r io.Reader) ([]partDesc, error) {
 	parts = append(parts, part)
 
 	return parts, nil
+}
+
+func maxFloat(a, b float64) float64 {
+	if a > b {
+		return a
+	}
+	return b
 }
