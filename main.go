@@ -66,7 +66,7 @@ func main() {
 		csvFile.Close()
 	}
 	if csvFile, err = os.Open(csvFn); err != nil {
-		log.Fatalf("error opening %q: %v", err)
+		log.Fatalf("error opening %q: %v", csvFn, err)
 	}
 	defer csvFile.Close()
 	parts, err := parseCsv(csDecoder(csvFile))
@@ -74,7 +74,7 @@ func main() {
 		log.Fatalf("error parsing csv %q: %v", csvFn, err)
 	}
 	if _, err = csvFile.Seek(0, 0); err != nil {
-		log.Fatalf("error seeking back on %s: %v", csvFile, err)
+		log.Fatalf("error seeking back on %v: %v", csvFile, err)
 	}
 	cr := csv.NewReader(csDecoder(csvFile))
 	cr.Comma = ';'
@@ -104,7 +104,7 @@ func main() {
 
 		rowWriter := makeTable(pdf, pdfTranslator, part.head, part.widths)
 		if _, err = cr.Read(); err != nil {
-			log.Fatalf("error reading head of %s: %v", cr, err)
+			log.Fatalf("error reading head of %v: %v", cr, err)
 		}
 		for n++; n < part.lastLine; n++ {
 			record, err := cr.Read()
@@ -112,7 +112,7 @@ func main() {
 				if err == io.EOF {
 					break
 				}
-				log.Fatalf("error reading csv %s: %v", cr, err)
+				log.Fatalf("error reading csv %v: %v", cr, err)
 			}
 			rowWriter(record)
 		}
