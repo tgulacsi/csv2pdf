@@ -18,13 +18,25 @@ import (
 	"path/filepath"
 	"strings"
 
-	"code.google.com/p/gofpdf"
 	"github.com/GeertJohan/go.rice"
+	"github.com/jung-kurt/gofpdf"
 	"github.com/tgulacsi/go/text"
 )
 
+var (
+	HeadFontSize  = 6.5
+	HeadCharRatio = 2.25
+	CellFontSize  = 6.0
+	CellCharRatio = 2.0
+)
+
 func main() {
-	flagCharset := flag.String("charset", "utf-8", "input charset")
+	charset := "utf-8"
+	tmp := strings.SplitN(os.Getenv("LANG"), ".", 2)
+	if len(tmp) > 1 {
+		charset = tmp[1]
+	}
+	flagCharset := flag.String("charset", charset, "input charset")
 	flagFontDir := flag.String("fontdir", "", "font directory")
 	flag.Parse()
 
@@ -33,20 +45,19 @@ func main() {
 		log.Fatalf("error preparing font dir %q: %v", *flagFontDir, err)
 	}
 	defer closeFontDir()
-
-	encoding := text.GetEncoding(*flagCharset)
+	charset = strings.ToLower(*flagCharset)
+	if strings.HasPrefix(charset, "iso8859") {
+		charset = "iso-8859-" + strings.TrimLeft(charset[7:], "-")
+	}
+	encoding := text.GetEncoding(charset)
 	var (
-		csDecoder     func(r io.Reader) io.Reader
 		pdfTranslator = func(t string) string { return t }
 	)
 	if encoding != nil {
-		csDecoder = func(r io.Reader) io.Reader { return text.NewDecodingReader(r, encoding) }
-		fn := filepath.Join(fontDir, strings.ToLower(*flagCharset)+".map")
+		fn := filepath.Join(fontDir, strings.ToLower(charset)+".map")
 		if pdfTranslator, err = gofpdf.UnicodeTranslatorFromFile(fn); err != nil {
 			log.Fatalf("error loading charset mapping from %q: %v", fn, err)
 		}
-	} else {
-		csDecoder = func(r io.Reader) io.Reader { return text.NewReplacementReader(r) }
 	}
 
 	var (
@@ -70,14 +81,14 @@ func main() {
 		log.Fatalf("error opening %q: %v", err)
 	}
 	defer csvFile.Close()
-	parts, err := parseCsv(csDecoder(csvFile))
+	parts, err := parseCsv(text.NewDecodingReader(csvFile, encoding))
 	if err != nil {
 		log.Fatalf("error parsing csv %q: %v", csvFn, err)
 	}
 	if _, err = csvFile.Seek(0, 0); err != nil {
 		log.Fatalf("error seeking back on %s: %v", csvFile, err)
 	}
-	cr := csv.NewReader(csDecoder(csvFile))
+	cr := csv.NewReader(text.NewDecodingReader(csvFile, encoding))
 	cr.Comma = ';'
 	cr.FieldsPerRecord = -1
 	cr.LazyQuotes = true
@@ -88,13 +99,19 @@ func main() {
 	defPageSize := gofpdf.SizeType{defPageWidth, defPageHeight}
 	n := 0
 	for _, part := range parts {
-		log.Printf("head=%q, colwidths=%+v", part.head, part.widths)
-		totalWidth := 0
+		log.Printf("head=%q, colLengths=%+v", part.head, part.lengths)
+		totalWidth := 0.0
+		if len(part.widths) < len(part.head) {
+			part.widths = make([]float64, len(part.head))
+		}
 		for i := range part.head {
-			if len(part.head[i]) > part.widths[i] {
-				part.widths[i] = len(part.head[i])
+			h := float64(len(part.head[i])) * HeadCharRatio
+			w := float64(part.lengths[i]) * CellCharRatio
+			if h > w {
+				w = h
 			}
-			totalWidth += part.widths[i]
+			part.widths[i] = w
+			totalWidth += w
 		}
 		orientation := "P"
 		if totalWidth > 190 {
@@ -179,7 +196,7 @@ func prepareFontDir(path string) (fontDir string, closeDir func() error, err err
 
 // makeTable prepares a table and returns a function for inserting the rows
 func makeTable(pdf *gofpdf.Fpdf, pdfTranslator func(string) string,
-	header []string, widths []int) func([]string,
+	header []string, widths []float64) func([]string,
 ) {
 	// Colors, line width and bold font
 	pdf.SetFillColor(255, 0, 0)
@@ -190,7 +207,7 @@ func makeTable(pdf *gofpdf.Fpdf, pdfTranslator func(string) string,
 
 	// Header
 	for i, v := range header {
-		pdf.CellFormat(float64(widths[i])*1.25, 7, pdfTranslator(v), "1", 0, "C", true, 0, "")
+		pdf.CellFormat(float64(widths[i]), HeadFontSize, pdfTranslator(v), "1", 0, "C", true, 0, "")
 	}
 	pdf.Ln(-1)
 
@@ -203,7 +220,7 @@ func makeTable(pdf *gofpdf.Fpdf, pdfTranslator func(string) string,
 	fill := false
 	return func(record []string) {
 		for i, v := range record {
-			pdf.CellFormat(float64(widths[i])*1.25, 6, pdfTranslator(v), "LR", 0, "L", fill, 0, "")
+			pdf.CellFormat(float64(widths[i]), CellFontSize, pdfTranslator(v), "LR", 0, "L", fill, 0, "")
 		}
 		pdf.Ln(-1)
 		fill = !fill
@@ -213,7 +230,8 @@ func makeTable(pdf *gofpdf.Fpdf, pdfTranslator func(string) string,
 type partDesc struct {
 	firstLine, lastLine int
 	head                []string
-	widths              []int
+	widths              []float64
+	lengths             []int
 }
 
 func parseCsv(r io.Reader) ([]partDesc, error) {
@@ -232,7 +250,7 @@ func parseCsv(r io.Reader) ([]partDesc, error) {
 	if err != nil {
 		return nil, err
 	}
-	part.widths = make([]int, len(part.head))
+	part.lengths = make([]int, len(part.head))
 
 	n := 1
 	for {
@@ -250,12 +268,12 @@ func parseCsv(r io.Reader) ([]partDesc, error) {
 			part.lastLine = n - 1
 			part.firstLine = n
 			part.head = record
-			part.widths = make([]int, len(part.head))
+			part.lengths = make([]int, len(part.head))
 			continue
 		}
 		for i, v := range record {
-			if len(v) > part.widths[i] {
-				part.widths[i] = len(v)
+			if len(v) > part.lengths[i] {
+				part.lengths[i] = len(v)
 			}
 		}
 	}
