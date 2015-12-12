@@ -18,7 +18,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"code.google.com/p/gofpdf"
+	"github.com/jung-kurt/gofpdf"
 	"github.com/tgulacsi/go/text"
 )
 
