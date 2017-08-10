@@ -10,7 +10,6 @@ import (
 	"bytes"
 	"encoding/csv"
 	"flag"
-	"fmt"
 	"io"
 	"io/ioutil"
 	"log"
@@ -19,8 +18,14 @@ import (
 	"strings"
 
 	"github.com/jung-kurt/gofpdf"
+	"github.com/pkg/errors"
 	"github.com/tgulacsi/go/text"
 )
+
+//go:generate mkdir -p assets
+//go:generate zip -qjr9 assets/fontdir.zip font
+//go:generate go get github.com/jteeuwen/go-bindata/...
+//go:generate go-bindata -nomemcopy -nocompress -prefix=assets -o=./fontdir.go assets
 
 func main() {
 	flagCharset := flag.String("charset", "utf-8", "input charset")
@@ -129,17 +134,17 @@ func prepareFontDir(path string) (fontDir string, closeDir func() error, err err
 	}
 	fontZipData, err := Asset("fontdir.zip")
 	if err != nil {
-		err = fmt.Errorf("no fontdir given, and no fontdir is bundled: %v", err)
+		err = errors.Wrap(err, "no fontdir given, and no fontdir is bundled")
 		return
 	}
 	zr, e := zip.NewReader(bytes.NewReader(fontZipData), int64(len(fontZipData)))
 	if e != nil {
-		err = fmt.Errorf("error opening zip: %v", err)
+		err = errors.Wrap(err, "opening zip")
 		return
 	}
 
 	if fontDir, err = ioutil.TempDir("", "csv2pdf-font-"); err != nil {
-		err = fmt.Errorf("cannot create temp dir for fonts: %v", err)
+		err = errors.Wrap(err, "create temp dir for fonts")
 		return
 	}
 	closeDir = func() error { return os.RemoveAll(fontDir) }
