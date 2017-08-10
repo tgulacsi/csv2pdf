@@ -20,6 +20,7 @@ import (
 	"github.com/jung-kurt/gofpdf"
 	"github.com/pkg/errors"
 	"github.com/tgulacsi/go/text"
+	"golang.org/x/sync/errgroup"
 )
 
 //go:generate mkdir -p assets
@@ -155,26 +156,37 @@ func prepareFontDir(path string) (fontDir string, closeDir func() error, err err
 		}
 	}()
 
+	tokens := make(chan struct{}, 16)
+	var token struct{}
+	var grp errgroup.Group
 	for _, fi := range zr.File {
-		src, err := fi.Open()
-		if err != nil {
-			log.Printf("error opening %q: %v", fi.Name, err)
-			continue
-		}
-		dstFn := filepath.Join(fontDir, fi.Name)
-		dst, err := os.Create(dstFn)
-		if err != nil {
-			src.Close()
-			log.Printf("error creating %q: %v", dstFn, err)
-			continue
-		}
-		log.Printf("copying %s to %s", fi.Name, dstFn)
-		if _, err = io.Copy(dst, src); err != nil {
-			log.Printf("error copying: %v", err)
-		}
-		dst.Close()
-		src.Close()
+		fi := fi
+		grp.Go(func() error {
+			tokens <- token
+			defer func() { <-tokens }()
+			src, err := fi.Open()
+			if err != nil {
+				log.Printf("error opening %q: %v", fi.Name, err)
+				return nil
+			}
+			defer src.Close()
+			dstFn := filepath.Join(fontDir, fi.Name)
+			dst, err := os.Create(dstFn)
+			if err != nil {
+				src.Close()
+				log.Printf("error creating %q: %v", dstFn, err)
+				return nil
+			}
+			defer dst.Close()
+			//log.Printf("copying %s to %s", fi.Name, dstFn)
+			if _, err = io.Copy(dst, src); err != nil {
+				log.Printf("error copying: %v", err)
+				return err
+			}
+			return dst.Close()
+		})
 	}
+	err = grp.Wait()
 	return
 }
 
