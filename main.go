@@ -21,12 +21,15 @@ import (
 	"github.com/pkg/errors"
 	"github.com/tgulacsi/go/text"
 	"golang.org/x/sync/errgroup"
+
+	"github.com/rakyll/statik/fs"
+	_ "github.com/tgulacsi/csv2pdf/statik"
 )
 
 //go:generate mkdir -p assets
 //go:generate zip -qjr9 assets/fontdir.zip font
-//go:generate go get github.com/jteeuwen/go-bindata/...
-//go:generate go-bindata -nomemcopy -nocompress -prefix=assets -o=./fontdir.go assets
+//go:generate go get github.com/rakyll/statik
+//go:generate statik -f -m -Z -src=./assets
 
 func main() {
 	flagCharset := flag.String("charset", "utf-8", "input charset")
@@ -40,17 +43,14 @@ func main() {
 	defer closeFontDir()
 
 	encoding := text.GetEncoding(*flagCharset)
-	var (
-		csDecoder     func(r io.Reader) io.Reader
-		pdfTranslator = func(t string) string { return t }
-	)
-	csDecoder = func(r io.Reader) io.Reader { return text.NewDecodingReader(r, encoding) }
+	csDecoder := func(r io.Reader) io.Reader { return text.NewDecodingReader(r, encoding) }
 	cs := *flagCharset
 	if cs == "utf-8" {
 		cs = "iso-8859-2"
 	}
 	fn := filepath.Join(fontDir, strings.ToLower(cs)+".map")
-	if pdfTranslator, err = gofpdf.UnicodeTranslatorFromFile(fn); err != nil {
+	pdfTranslator, err := gofpdf.UnicodeTranslatorFromFile(fn)
+	if err != nil {
 		log.Fatalf("error loading charset mapping from %q: %v", fn, err)
 	}
 
@@ -90,7 +90,7 @@ func main() {
 
 	pdf := gofpdf.New("P", "mm", "A4", fontDir)
 	defPageWidth, defPageHeight, _ := pdf.PageSize(0)
-	defPageSize := gofpdf.SizeType{defPageWidth, defPageHeight}
+	defPageSize := gofpdf.SizeType{Wd: defPageWidth, Ht: defPageHeight}
 	n := 0
 	for _, part := range parts {
 		log.Printf("head=%q, colwidths=%+v", part.head, part.widths)
@@ -133,14 +133,27 @@ func prepareFontDir(path string) (fontDir string, closeDir func() error, err err
 	if fontDir != "" {
 		return
 	}
-	fontZipData, err := Asset("fontdir.zip")
-	if err != nil {
-		err = errors.Wrap(err, "no fontdir given, and no fontdir is bundled")
+
+	statikFS, e := fs.New()
+	if e != nil {
+		err = errors.Wrap(e, "no fontdir given, and no fontdir is bundled")
+		return
+	}
+	fn := "/fontdir.zip"
+	f, e := statikFS.Open(fn)
+	if e != nil {
+		err = errors.Wrap(e, "open "+fn)
+		return
+	}
+	fontZipData, e := ioutil.ReadAll(f)
+	f.Close()
+	if e != nil {
+		err = errors.Wrap(e, "read "+fn)
 		return
 	}
 	zr, e := zip.NewReader(bytes.NewReader(fontZipData), int64(len(fontZipData)))
 	if e != nil {
-		err = errors.Wrap(err, "opening zip")
+		err = errors.Wrap(e, "opening zip")
 		return
 	}
 
@@ -181,7 +194,7 @@ func prepareFontDir(path string) (fontDir string, closeDir func() error, err err
 			//log.Printf("copying %s to %s", fi.Name, dstFn)
 			if _, err = io.Copy(dst, src); err != nil {
 				log.Printf("error copying: %v", err)
-				return err
+				return errors.Wrapf(err, "copy %q to %q", fi.Name, dstFn)
 			}
 			return dst.Close()
 		})
