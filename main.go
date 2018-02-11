@@ -21,12 +21,15 @@ import (
 	"github.com/pkg/errors"
 	"github.com/tgulacsi/go/text"
 	"golang.org/x/sync/errgroup"
+
+	_ "github.com/tgulacsi/csv2pdf/statik"
+	"github.com/tgulacsi/statik/fs"
 )
 
 //go:generate mkdir -p assets
 //go:generate zip -qjr9 assets/fontdir.zip font
-//go:generate go get github.com/mjibson/esc
-//go:generate esc -no-compress -prefix=assets -o assets.go assets
+//go:generate go get github.com/tgulacsi/statik
+//go:generate statik -Z -f -src=./assets/
 
 func main() {
 	flagCharset := flag.String("charset", "utf-8", "input charset")
@@ -131,7 +134,18 @@ func prepareFontDir(path string) (fontDir string, closeDir func() error, err err
 		return
 	}
 
-	fontZipData, e := FSByte(false, "/fontdir.zip")
+	statikFS, e := fs.New()
+	if e != nil {
+		err = errors.Wrap(e, "statik")
+		return
+	}
+	f, e := statikFS.Open("/fontdir.zip")
+	if e != nil {
+		err = errors.Wrap(e, "open /fontdir.zip")
+		return
+	}
+	fontZipData, e := ioutil.ReadAll(f)
+	f.Close()
 	if e != nil {
 		err = errors.Wrap(e, "read fontdir.zip")
 		return
