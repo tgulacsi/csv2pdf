@@ -139,13 +139,7 @@ func prepareFontDir(path string) (fontDir string, closeDir func() error, err err
 		err = errors.Wrap(e, "statik")
 		return
 	}
-	f, e := statikFS.Open("/fontdir.zip")
-	if e != nil {
-		err = errors.Wrap(e, "open /fontdir.zip")
-		return
-	}
-	fontZipData, e := ioutil.ReadAll(f)
-	f.Close()
+	fontZipData, e := fs.ReadFile(statikFS, "/fontdir.zip")
 	if e != nil {
 		err = errors.Wrap(e, "read fontdir.zip")
 		return
