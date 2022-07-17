@@ -11,7 +11,6 @@ import (
 	"encoding/csv"
 	"flag"
 	"io"
-	"io/ioutil"
 	"log"
 	"os"
 	"path/filepath"
@@ -60,7 +59,7 @@ func main() {
 	)
 	if csvFn == "" || csvFn == "-" {
 		// we must save it somewhere
-		csvFile, err = ioutil.TempFile("", "csv2pdf-")
+		csvFile, err = os.CreateTemp("", "csv2pdf-")
 		if err != nil {
 			log.Fatalf("error creating tempfile: %v", err)
 		}
@@ -150,7 +149,7 @@ func prepareFontDir(path string) (fontDir string, closeDir func() error, err err
 		return
 	}
 
-	if fontDir, err = ioutil.TempDir("", "csv2pdf-font-"); err != nil {
+	if fontDir, err = os.MkdirTemp("", "csv2pdf-font-"); err != nil {
 		err = errors.Wrap(err, "create temp dir for fonts")
 		return
 	}
